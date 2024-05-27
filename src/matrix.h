@@ -24,6 +24,15 @@ void matrix_sum(matrix_t *m1, matrix_t *m2, matrix_t *res);
 
 void matrix_minus(matrix_t *m1, matrix_t *m2, matrix_t *res);
 
+__global__ 
+void matrixMultiplyKernel(double *A, double *B, double *res, int m, int n, int k);
+
+void matrixDotCUDAManaged(double *h_A, double *h_B, double *h_res, int m, int n, int k);
+
+void matrixDotCUDA(double *h_A, double *h_B, double *h_res, int m, int n, int k);
+
+void matrix_dot(double *A, double *B, double *res, int m, int n, int k);
+
 void matrix_dot(matrix_t *m1, matrix_t *m2, matrix_t *res);
 
 void matrix_function(matrix_t *m1, double (*f)(double), matrix_t *res);
