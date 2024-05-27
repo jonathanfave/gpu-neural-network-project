@@ -16,4 +16,4 @@ Pour mesurer les performances CPU :
 
 Pour mesurer les performances GPU :
   * Compiler le code
-  * sudo /usr/local/cuda/bin/nvprof main
+  * sudo /usr/local/cuda/bin/nvprof ./main
