@@ -3,11 +3,12 @@
 #include <string.h>
 #include <cuda_runtime.h>
 #include <stdio.h>
+#include <iostream>
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
-matrix_t * alloc_matrix(unsigned rows, unsigned columns)
+matrix_t * alloc_matrix2(unsigned rows, unsigned columns)
 {
     matrix_t * res = (matrix_t*) malloc( sizeof(matrix_t) );
     res->m = (double *) calloc(columns * rows, sizeof(double));
@@ -16,11 +17,29 @@ matrix_t * alloc_matrix(unsigned rows, unsigned columns)
     return res;
 }
 
-void destroy_matrix(matrix_t *m)
+void destroy_matrix2(matrix_t *m)
 {
     //printf("free %p %p\n", m, m->m);
     free(m->m);
     free(m);
+}
+
+matrix_t * alloc_matrix(unsigned rows, unsigned columns)
+{
+    matrix_t * res;
+    cudaMallocManaged( (void **) &res, sizeof(matrix_t));
+    cudaMallocManaged( (void **) &(res->m), columns * rows *sizeof(double));
+    cudaMemset(res->m, 0, res->columns * res->rows * sizeof(double));
+    
+    res->columns = columns;
+    res->rows = rows;
+    return res;
+}
+
+void destroy_matrix(matrix_t *m)
+{
+    cudaFree(m->m);
+    cudaFree(m);
 }
 
 void print_matrix(matrix_t *m, bool is_short){
@@ -98,46 +117,128 @@ void matrixMultiplyKernel(double *A, double *B, double *res, int m, int n, int k
         float sum = 0.0f;
         for (int i = 0; i < n; i++) {
             sum += A[row * n + i] * B[i * k + col];
+        }   
+        res[row * k + col] = sum;
+    }
+}
+
+// Kernel for matrix multiplication using shared memory
+__global__
+void matrixMultiplyKernelManaged(double *A, double *B, double *res, int m, int n, int k) {
+    __shared__ double s_A[16][16];
+    __shared__ double s_B[16][16];
+
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    double sum = 0.0;
+
+    for (int tile = 0; tile < (n + 15) / 16; ++tile) {
+        if (row < m && tile * 16 + threadIdx.x < n) {
+            s_A[threadIdx.y][threadIdx.x] = A[row * n + tile * 16 + threadIdx.x];
+        } else {
+            s_A[threadIdx.y][threadIdx.x] = 0.0;
         }
+
+        if (col < k && tile * 16 + threadIdx.y < n) {
+            s_B[threadIdx.y][threadIdx.x] = B[(tile * 16 + threadIdx.y) * k + col];
+        } else {
+            s_B[threadIdx.y][threadIdx.x] = 0.0;
+        }
+
+        __syncthreads();
+
+        for (int i = 0; i < 16; ++i) {
+            sum += s_A[threadIdx.y][i] * s_B[i][threadIdx.x];
+        }
+
+        __syncthreads();
+    }
+
+    if (row < m && col < k) {
         res[row * k + col] = sum;
     }
 }
 
 // Function to perform matrix multiplication using CUDA with unified memory
-void matrixDotCUDAManaged(double *h_A, double *h_B, double *h_res, int m, int n, int k) {
-    // Allocate unified memory
-    double *d_A, *d_B, *d_res;
-    cudaMallocManaged(&d_A, m * n * sizeof(double));
-    cudaMallocManaged(&d_B, n * k * sizeof(double));
-    cudaMallocManaged(&d_res, m * k * sizeof(double));
+void matrixDotCUDAManaged3(matrix_t *A, matrix_t *B, matrix_t *C) {
+    int m = A->rows;
+    int n = A->columns;
+    int k = B->columns;
 
-    // Transfer data to unified memory
-    cudaMemcpy(d_A, h_A, m * n * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, h_B, n * k * sizeof(double), cudaMemcpyHostToDevice);
+    // Définition des dimensions du block et de la grille
+    dim3 dimBlock(16, 16);
+    dim3 dimGrid((k + dimBlock.x - 1) / dimBlock.x, (m + dimBlock.y - 1) / dimBlock.y);
+
+    // Lancement du kernel
+    matrixMultiplyKernelManaged<<<dimGrid, dimBlock>>>(A->m, B->m, C->m, m, n, k);
+    cudaDeviceSynchronize();
+}
+
+// Function to perform matrix multiplication using CUDA with unified memory
+void matrixDotCUDAManaged2(double *h_A, double *h_B, double *h_res, int m, int n, int k) {
+    // Allocate unified memory
+    double *um_A, *um_B, *um_res;
+    int size_A = m * n * sizeof(double);
+    int size_B = n * k * sizeof(double);
+    int size_res = m * k * sizeof(double);
+    cudaMallocManaged(&um_A, size_A);
+    cudaMallocManaged(&um_B, size_B);
+    cudaMallocManaged(&um_res, size_res);
+
+    // Copy data to unified memory
+    //memcpy(um_A, h_A, size_A);
+    //memcpy(um_B, h_B, size_B);
+
+    // Define block and grid sizes
+    dim3 dimBlock(32, 32);
+    dim3 dimGrid((k + dimBlock.x - 1) / dimBlock.x, (m + dimBlock.y - 1) / dimBlock.y);
+
+    // Launch kernel
+    matrixMultiplyKernelManaged<<<dimGrid, dimBlock>>>(um_A, um_B, um_res, m, n, k);
+    cudaDeviceSynchronize(); // Wait for kernel to finish execution
+
+    // Copy result back to host memory
+    //memcpy(h_res, um_res, size_res);
+
+    // Free unified memory
+    cudaFree(um_A);
+    cudaFree(um_B);
+    cudaFree(um_res);
+}
+
+// Function to perform matrix multiplication using CUDA with unified memory
+void matrixDotCUDAManaged(int m, int n, int k) {
+    // Allocate unified memory
+    double *um_A, *um_B, *um_res;
+    int size_A = m * n * sizeof     ( double );
+    int size_B = n * k * sizeof     ( double );
+    int size_res = m * k * sizeof   ( double );
+    cudaMallocManaged(&um_A, size_A);
+    cudaMallocManaged(&um_B, size_B);
+    cudaMallocManaged(&um_res, size_res);
 
     // Define block and grid sizes
     dim3 dimBlock(16, 16);
     dim3 dimGrid((k + dimBlock.x - 1) / dimBlock.x, (m + dimBlock.y - 1) / dimBlock.y);
 
     // Launch kernel
-    matrixMultiplyKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_res, m, n, k);
+    matrixMultiplyKernel<<<dimGrid, dimBlock>>>(um_A, um_B, um_res, m, n, k);
     cudaDeviceSynchronize(); // Wait for kernel to finish execution
 
-    // Transfer result back to host
-    cudaMemcpy(h_res, d_res, m * k * sizeof(double), cudaMemcpyDeviceToHost);
-
     // Free unified memory
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_res);
+    cudaFree(um_A);
+    cudaFree(um_B);
+    cudaFree(um_res);
 }
 
 
 // Function to perform matrix multiplication using CUDA
 void matrixDotCUDA(double *h_A, double *h_B, double *h_res, int m, int n, int k) {
-    int size_A = m * n * sizeof(float);
-    int size_B = n * k * sizeof(float);
-    int size_res = m * k * sizeof(float);
+    int size_A = m * n * sizeof     ( double );
+    int size_B = n * k * sizeof     ( double );
+    int size_res = m * k * sizeof   ( double );
+
+    // cudaMalloc pour les host ? 
 
     // Allocate memory on the GPU
     double *d_A, *d_B, *d_res;
@@ -163,12 +264,7 @@ void matrixDotCUDA(double *h_A, double *h_B, double *h_res, int m, int n, int k)
     cudaFree(d_A);
     cudaFree(d_B);
     cudaFree(d_res);
-}
-
-// Existing matrix_dot function
-void matrix_dot(double *A, double *B, double *res, int m, int n, int k) {
-    // Call the optimized CUDA function
-    matrixDotCUDA(A, B, res, n, m, k);
+    // Free memoire host ??
 }
 
 void matrix_dot(matrix_t *m1, matrix_t *m2, matrix_t *res)

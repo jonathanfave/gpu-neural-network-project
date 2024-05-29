@@ -25,6 +25,7 @@ typedef struct
     void (*fd)(double*, double*, unsigned, unsigned);
     double alpha;
     unsigned minibatch_size;
+    unsigned max_neurons_in_layer;
     unsigned input_size;
     unsigned number_of_layers;
     layer_t** layers;
@@ -39,6 +40,8 @@ void set_input(ann_t *nn, matrix_t* input);
 void print_nn(ann_t *nn);
 
 void forward(ann_t *nn, double (*activation_function)(double));
+
+void forward2(ann_t *nn, double (*activation_function)(double));
 
 void backward(ann_t *nn, matrix_t *y, double (*derivative_actfunct)(double));
 

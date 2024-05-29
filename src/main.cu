@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 
+#define EPOCH 4 
 void populate_minibatch(double *x, double* y, unsigned* minibatch_idx, unsigned minibatch_size, image * img, unsigned img_size, byte* label, unsigned label_size);
 
 void zero_to_n(unsigned n, unsigned* t)
@@ -114,6 +115,7 @@ int main(int argc, char *argv[])
     ann_t * nn;
     double alpha = 0.05;
     unsigned minibatch_size = 16;
+    unsigned max_neurons_in_layer = 28*28;
     unsigned number_of_layers = 3;
     unsigned nneurons_per_layer[3] = {28*28, 30, 10};
     nn = create_ann(alpha, minibatch_size, number_of_layers, nneurons_per_layer);
@@ -126,7 +128,7 @@ int main(int argc, char *argv[])
     double *y = (double *) malloc(10 * minibatch_size * sizeof( double ));
     matrix_t *out = alloc_matrix(10, minibatch_size);
     
-    for (int epoch = 0; epoch < 1; epoch ++)
+    for (int epoch = 0; epoch < EPOCH; epoch ++)
     {
         printf("start learning epoch %d\n", epoch);
 

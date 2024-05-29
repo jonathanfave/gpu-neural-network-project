@@ -22,7 +22,7 @@ all: $(TARGET)
 # Règle pour créer l'exécutable à partir des objets
 $(TARGET): $(OBJS)
 	@echo "Building executable $(TARGET)"
-	$(NVCC) $(NVCC_FLAGS) -o $@ $^
+	$(NVCC) $(NVCC_FLAGS) -pg -o $@ $^
 
 # Règle pour compiler les fichiers sources en fichiers objets
 %.o: %.cu
